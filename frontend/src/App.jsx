@@ -27,6 +27,14 @@ const MOCK_ROOFTOPS = [
 function App() {
   const [rooftops] = useState(MOCK_ROOFTOPS);
   const [selectedRooftop, setSelectedRooftop] = useState(null);
+
+  // --- Filter state: minimum area (m²) ---
+  const [minArea, setMinArea] = useState(0);
+  // derived filtered list used by map and list UI
+  const filteredRooftops = useMemo(
+    () => rooftops.filter(r => r.area >= (minArea || 0)).sort((a,b)=>a.rank-b.rank),
+    [rooftops, minArea]
+  );
   
   // Refs for Leaflet map integration
   const mapContainerRef = useRef(null);
@@ -35,55 +43,74 @@ function App() {
 
   const LEUVEN_CENTER = [50.8792, 4.7001];
 
-  // 1. Initialize Map on first render
+  // 1. Initialize Map on first render — wait for window.L if necessary
   useEffect(() => {
     if (!mapContainerRef.current || mapInstanceRef.current) return; // Only init once
 
-    // Check if Leaflet (window.L) is loaded
-    if (!window.L) {
-      console.error("Leaflet JS not loaded! Check index.html for CDN links.");
-      return;
+    const initMap = (L) => {
+      const map = L.map(mapContainerRef.current).setView(LEUVEN_CENTER, 12);
+      
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        subdomains: 'abcd',
+        maxZoom: 20
+      }).addTo(map);
+      
+      mapInstanceRef.current = map;
+
+      // markers will be managed by a separate effect (so they react to filters)
+    };
+
+    if (window.L) {
+      initMap(window.L);
+    } else {
+      // Poll briefly for Leaflet to become available (CDN script may load slightly later)
+      let tries = 0;
+      const iv = setInterval(() => {
+        if (window.L) {
+          clearInterval(iv);
+          initMap(window.L);
+        } else if (++tries > 50) { // ~5s max
+          clearInterval(iv);
+          console.error('Leaflet not found after waiting — map will not initialize.');
+        }
+      }, 100);
     }
 
-    const L = window.L; // Get Leaflet from global scope
-    const map = L.map(mapContainerRef.current).setView(LEUVEN_CENTER, 12);
-    
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-      subdomains: 'abcd',
-      maxZoom: 20
-    }).addTo(map);
-    
-    mapInstanceRef.current = map;
-
-    // Add all markers to the map
-    const newMarkers = {};
-    rooftops.forEach(roof => {
-      const marker = L.marker([roof.lat, roof.lng], {
-        // Add a custom icon if desired
-      })
-      .addTo(map)
-      .on('click', () => {
-        // When marker is clicked, update React state
-        setSelectedRooftop(roof);
-      });
-      
-      marker.bindTooltip(roof.name);
-      newMarkers[roof.rank] = marker;
-    });
-    markersRef.current = newMarkers;
-
-    // Cleanup function
+    // Cleanup
     return () => {
-      // When component unmounts, destroy the map instance
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
       }
     };
+  }, [rooftops]);
 
-  }, [rooftops]); // Re-run if rooftops data changes
+  // 1b. Update markers whenever filteredRooftops changes
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
 
+    // remove old markers
+    Object.values(markersRef.current).forEach(m => m.remove());
+    markersRef.current = {};
+
+    // add markers for filtered roofs
+    const L = window.L;
+    if (!L) return;
+    const newMarkers = {};
+    filteredRooftops.forEach(roof => {
+      const marker = L.marker([roof.lat, roof.lng]).addTo(map).bindTooltip(roof.name);
+      marker.on('click', () => setSelectedRooftop(roof));
+      newMarkers[roof.rank] = marker;
+    });
+    markersRef.current = newMarkers;
+
+    // if selected rooftop is no longer in filtered list, clear selection
+    if (selectedRooftop && !filteredRooftops.find(r => r.rank === selectedRooftop.rank)) {
+      setSelectedRooftop(null);
+    }
+  }, [filteredRooftops]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 2. Handle map view changes when a rooftop is selected
   useEffect(() => {
@@ -95,34 +122,59 @@ function App() {
 
     map.flyTo([selectedRooftop.lat, selectedRooftop.lng], 16); // Zoom in
     
-    // Open a popup on the selected marker
-    const popupContent = `
-      <div class="font-sans">
-        <h4 class="text-sm font-bold m-0 mb-1 text-green-700">#${selectedRooftop.rank}: ${selectedRooftop.name}</h4>
-        <p class="text-xs m-0"><strong>Area:</strong> ${selectedRooftop.area.toLocaleString()} m²</p>
-        <p class="text-xs m-0"><strong>CO₂:</strong> ${selectedRooftop.co2.toLocaleString()} tons/yr</p>
+    // simpler popup binding to avoid API mismatch
+    marker.bindPopup(`
+      <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial;">
+        <h4 style="margin:0 0 4px 0; font-weight:700; color:#166534">#${selectedRooftop.rank}: ${selectedRooftop.name}</h4>
+        <p style="margin:0; font-size:12px"><strong>Area:</strong> ${selectedRooftop.area.toLocaleString()} m²</p>
+        <p style="margin:0; font-size:12px"><strong>CO₂:</strong> ${selectedRooftop.co2.toLocaleString()} tons/yr</p>
       </div>
-    `;
-    // We need window.L to create the popup
-    marker.bindPopup(window.L.popup({ content: popupContent })).openPopup();
+    `).openPopup();
 
   }, [selectedRooftop]);
 
   return (
-    <div className="flex h-screen w-screen bg-gray-100 font-sans">
+    <div className="flex h-screen w-screen bg-gray-100 font-sans overflow-hidden">
       
       {/* --- 1. Map Container --- */}
-      <div className="flex-1 h-full relative">
-        {/* The map div. Note: We removed id="map" as ref is safer */}
-        <div ref={mapContainerRef} className="h-full w-full" />
-        <div className="absolute top-4 left-4 z-[1000] p-3 bg-white rounded-lg shadow-lg">
-          <h1 className="text-xl font-bold text-gray-800 m-0">☀️ Leuven Solar Rooftop Analyzer</h1>
-          <p className="text-sm text-gray-600 m-0">Top 200 Potential Sites</p>
+      <div className="flex-1 h-full relative min-h-0 flex">
+        {/* map pane fills available space */}
+        <div className="flex-1 min-h-0">
+          <div ref={mapContainerRef} className="h-full w-full" />
         </div>
-      </div>
-
-      {/* --- 2. Sidebar (List & Details) --- */}
-      <aside className="w-full md:w-[450px] h-screen bg-white shadow-xl flex flex-col z-10 overflow-hidden">
+        {/* end map pane */}
+         <div className="absolute top-4 left-4 z-[1000] p-3 bg-white rounded-lg shadow-lg">
+           <h1 className="text-xl font-bold text-gray-800 m-0">☀️ Leuven Solar Rooftop Analyzer</h1>
+           <p className="text-sm text-gray-600 m-0">Top 200 Potential Sites</p>
+         </div>
+       </div>
+ 
+       {/* --- 2. Sidebar (List & Details) --- */}
+      <aside className="w-[420px] flex-shrink-0 h-full bg-white shadow-xl flex flex-col z-10 overflow-hidden">
+        {/* --- Filter controls --- */}
+        <div className="p-4 border-b bg-white">
+          <label className="text-sm font-medium text-gray-700">Minimum area (m²): <span className="font-semibold">{minArea}</span></label>
+          <input
+            type="range"
+            min="0"
+            max="60000"
+            step="100"
+            value={minArea}
+            onChange={e => setMinArea(Number(e.target.value))}
+            className="w-full mt-2"
+          />
+          <div className="flex items-center gap-2 mt-2">
+            <input
+              type="number"
+              min="0"
+              value={minArea}
+              onChange={e => setMinArea(Number(e.target.value || 0))}
+              className="w-28 p-1 border rounded"
+            />
+            <button onClick={() => setMinArea(0)} className="px-3 py-1 bg-gray-100 rounded text-sm">Reset</button>
+            <div className="ml-auto text-xs text-gray-500">Showing {filteredRooftops.length} / {rooftops.length}</div>
+          </div>
+        </div>
         
         {/* --- Details Pane --- */}
         <div className="p-5 border-b border-gray-200">
@@ -142,7 +194,7 @@ function App() {
             Potential Rooftops List
           </h2>
           <RooftopList 
-            rooftops={rooftops}
+            rooftops={filteredRooftops}
             selectedRank={selectedRooftop?.rank}
             onSelect={setSelectedRooftop}
           />

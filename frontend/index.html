@@ -11,16 +11,11 @@
       We must add the CSS and JS files for Leaflet here in the root HTML file
       so that window.L is available globally for our React components.
     -->
-    <link 
-      rel="stylesheet" 
-      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-      crossorigin=""/>
-    <script 
-      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-      crossorigin=""></script>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+    <!-- 如果你用 npm 导入 leaflet JS，则不要再引入 leaflet.js CDN -->
+    <!-- <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script> -->
+    <!-- 如果你仍用 Tailwind 构建链，不要使用 CDN tailwind  -->
+    <!-- <script src="https://cdn.tailwindcss.com"></script> -->
   </head>
   <body>
     <div id="root"></div>

@@ -1,9 +1,13 @@
-/* ...existing code... */
+/* frontend/src/index.css */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* 保证根节点和 map 容器能撑满高度 */
-html, body, #root { height: 100%; margin: 0; }
-.map-full { height: 100%; width: 100%; } /* 可在 map 容器上加 map-full 类 */
-/* ...existing code... */
+/* 关键修复 */
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden; 
+}
