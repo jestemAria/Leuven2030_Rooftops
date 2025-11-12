@@ -1,25 +1,21 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Leuven 2030 | Solar Rooftop Analyzer</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <title>Leuven Solar Rooftop Analyzer</title>
 
-    <!-- 
-      LEAFLET.JS (MAPS) INTEGRATION
-      We must add the CSS and JS files for Leaflet here in the root HTML file
-      so that window.L is available globally for our React components.
-    -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
-    <!-- 如果你用 npm 导入 leaflet JS，则不要再引入 leaflet.js CDN -->
-    <!-- <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script> -->
-    <!-- 如果你仍用 Tailwind 构建链，不要使用 CDN tailwind  -->
-    <!-- <script src="https://cdn.tailwindcss.com"></script> -->
+    <!-- Leaflet CSS (保留) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+    <style>
+      html,body,#root { height: 100%; margin: 0; }
+      .leaflet-container { height: 100%; width: 100%; }
+    </style>
   </head>
-  <body>
+  <body class="h-screen">
     <div id="root"></div>
-    <!-- This is where React mounts -->
+
+    <!-- Vite/React 入口（确保 /src/main.jsx 存在且导入 ./index.css） -->
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

@@ -3,11 +3,11 @@
 @tailwind components;
 @tailwind utilities;
 
-/* 关键修复 */
+/* 回退样式（在 Tailwind 未生效时保证背景与文字颜色） */
 html, body, #root {
   height: 100%;
-  width: 100%;
   margin: 0;
-  padding: 0;
-  overflow: hidden; 
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, Arial;
+  background-color: #f3f4f6; /* Tailwind:bg-gray-100 */
+  color: #111827; /* Tailwind:text-gray-900 */
 }
