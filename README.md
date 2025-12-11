@@ -3,7 +3,7 @@
 
 Leuven2030_Rooftops/
 
-├── webapp.py                <-- main page
+├── webapp-with-two-pages.py                <-- main page
 
 ├── pages/                   <-- new folder
 
