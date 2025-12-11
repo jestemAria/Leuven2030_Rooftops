@@ -149,9 +149,16 @@ if df_top.empty:
 # 侧边栏
 with st.sidebar:
     st.header("🔍 Filters")
-    # 动态获取面积最大值，如果数据为空则给默认值
-    max_area = int(df_top.area.max()) if 'area' in df_top.columns and not df_top.empty else 5000
-    min_area = st.slider("Min Area (m²)", 0, max_area, 500)
+    # 动态获取面积最大值，如果数据为空或为0则给默认值5000
+    # 防止 Slider min_value (0) == max_value (0) 的崩溃
+    calculated_max = int(df_top.area.max()) if 'area' in df_top.columns and not df_top.empty else 0
+    max_area = max(calculated_max, 500)
+    
+    # 调试信息：显示数据范围
+    st.info(f"Loaded {len(df_top)} roofs. Max Area: {max_area} m²")
+    
+    # 修改：默认值改为 0，确保测试数据能显示
+    min_area = st.slider("Min Area (m²)", 0, max_area, 0)
     flat_only = st.checkbox("Show Flat Roofs Only (AI)", value=False)
 
 # 过滤
@@ -167,6 +174,8 @@ c1, c2 = st.columns([3, 2])
 with c1:
     st_folium(get_hang_map(df_candidates, filtered), height=600, width="100%")
 with c2:
+    st.subheader(f"Building List ({len(filtered)})") # 显示过滤后的数量
+    
     # 准备显示的列
     cols_to_show = ['name', 'area', 'co2']
     if 'rank' in filtered.columns: cols_to_show.insert(0, 'rank')
