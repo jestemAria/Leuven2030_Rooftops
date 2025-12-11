@@ -74,7 +74,8 @@ if error:
 st.info(f"Loaded **{len(df):,}** buildings from `{os.path.basename('large_roofs_test')}`. Using Clustering for performance.")
 
 # --- 4. 地图绘制 (使用 MarkerCluster) ---
-m = folium.Map(location=[50.8792, 4.7001], zoom_start=13, tiles="CartoDB dark_matter")
+# 修改：将 tiles 从 "CartoDB dark_matter" 改为 "CartoDB positron" (浅色风格)
+m = folium.Map(location=[50.8792, 4.7001], zoom_start=13, tiles="CartoDB positron")
 
 # 使用 FastMarkerCluster 处理大量数据点
 marker_cluster = MarkerCluster(name="All Buildings").add_to(m)
