@@ -8,82 +8,79 @@ import os
 
 st.set_page_config(layout="wide", page_title="Top 200 Analysis", page_icon="🎯")
 
-# --- 1. 数据加载逻辑 (Hang's Data) ---
+# --- 1. 数据加载逻辑 (Updated for PVGIS Data) ---
 @st.cache_data
 def load_hang_data():
-    # 更新：直接指向存在的 large_roofs_test.gpkg 文件
-    # 我们假设这个文件包含了所有的候选屋顶
-    data_path = "notebooks/data/large_roofs_test.gpkg"
+    # 1. 定义新文件路径
+    enriched_top200 = "notebooks/data/200_large_with_pv_enriched.gpkg" 
+    basic_top200 = "notebooks/data/200_large_with_pv.gpkg"
+    candidates_file = "notebooks/data/500_large_with_pv.gpkg"
     
     df_main = pd.DataFrame()
     df_bg = pd.DataFrame()
 
     try:
-        if not os.path.exists(data_path):
-            # 尝试找一下 GeoJSON 作为备选
-            data_path = "notebooks/data/large_roofs_test.geojson"
-            if not os.path.exists(data_path):
-                st.error(f"❌ Critical Error: Could not find data file at `{data_path}`")
-                return pd.DataFrame(), pd.DataFrame()
+        # --- 加载主数据 ---
+        if os.path.exists(enriched_top200):
+            df_main = gpd.read_file(enriched_top200)
+            if 'roof_type' not in df_main.columns: df_main['roof_type'] = 'Unknown'
+            if 'ai_confidence' not in df_main.columns: df_main['ai_confidence'] = 0.0
+            
+        elif os.path.exists(basic_top200):
+            df_main = gpd.read_file(basic_top200)
+            st.warning("⚠️ Loading raw PVGIS data (No AI classification yet). Run `predict_rooftypes.py` on the new file to add roof types.")
+            df_main['roof_type'] = 'Unknown'
+            df_main['ai_confidence'] = 0.0
+        else:
+            st.error(f"❌ Critical: Could not find Top 200 data. Expected: `{basic_top200}`")
+            return pd.DataFrame(), pd.DataFrame()
 
-        # 加载数据
-        gdf = gpd.read_file(data_path)
-        
-        # 检查必要的列是否存在，防止报错
-        if 'roof_type' not in gdf.columns: 
-            gdf['roof_type'] = 'Unknown'
-        if 'ai_confidence' not in gdf.columns: 
-            gdf['ai_confidence'] = 0.0
+        # --- 加载背景数据 ---
+        if os.path.exists(candidates_file):
+            df_bg = gpd.read_file(candidates_file).to_crs(4326)
 
-        # 坐标转换 & 重命名 (适配之前的逻辑)
-        # 你的 notebook 生成的列名可能是 'area_m2', 'co2_tons', 'src_id'
-        # 我们这里做一个安全的重命名
+        # --- 列名映射 ---
         rename_map = {
             'area_m2': 'area', 
-            'co2_tons': 'co2', 
             'src_id': 'name',
-            'oppervlakte': 'area' # 以防万一使用荷兰语列名
+            'best_co2_tons_year': 'co2',
+            'best_layout': 'orientation',
+            'best_kwh_year': 'kwh'
         }
-        gdf = gdf.rename(columns=rename_map)
+        df_main = df_main.rename(columns=rename_map)
         
-        # 确保有 co2 列 (如果没有，基于面积简单估算用于排序)
-        if 'co2' not in gdf.columns and 'area' in gdf.columns:
-            gdf['co2'] = gdf['area'] * 0.2 * 0.9 * 0.23 / 1000 # 简单的 fallback 计算
+        # 填充缺失值
+        if 'orientation' not in df_main.columns: df_main['orientation'] = 'N/A'
+        if 'kwh' not in df_main.columns: df_main['kwh'] = 0
 
-        # 处理几何和坐标
-        # 计算 WGS84 坐标用于标记 (Markers)
-        # 如果原始 CRS 不是 4326 (通常是 31370)，先转换重心
-        if gdf.crs and gdf.crs.to_epsg() != 4326:
-             # 先保留原始投影计算重心（更准）
-            gdf['c_x'] = gdf.geometry.centroid.x
-            gdf['c_y'] = gdf.geometry.centroid.y
-            transformer = Transformer.from_crs(gdf.crs, "EPSG:4326", always_xy=True)
-            gdf['lon'], gdf['lat'] = transformer.transform(gdf['c_x'].values, gdf['c_y'].values)
-            # 然后转换几何本身
-            gdf = gdf.to_crs(4326)
+        # --- 修复 KeyError: 'rank' ---
+        # 如果文件中没有 rank 列，我们根据 CO2 自动生成排名
+        if 'rank' not in df_main.columns:
+            if 'co2' in df_main.columns:
+                # 按 CO2 降序排列
+                df_main = df_main.sort_values(by='co2', ascending=False).reset_index(drop=True)
+                # 生成排名 (从1开始)
+                df_main['rank'] = df_main.index + 1
+            else:
+                # 如果连 CO2 都没有，就直接按顺序排
+                df_main['rank'] = range(1, len(df_main) + 1)
+
+        # --- 坐标转换 (WFS -> GPS) ---
+        if df_main.crs and df_main.crs.to_epsg() != 4326:
+            df_main['c_x'] = df_main.geometry.centroid.x
+            df_main['c_y'] = df_main.geometry.centroid.y
+            transformer = Transformer.from_crs(df_main.crs, "EPSG:4326", always_xy=True)
+            df_main['lon'], df_main['lat'] = transformer.transform(df_main['c_x'].values, df_main['c_y'].values)
+            df_main = df_main.to_crs(4326)
         else:
-            # 已经是 4326
-            gdf['lon'] = gdf.geometry.centroid.x
-            gdf['lat'] = gdf.geometry.centroid.y
+            df_main['lon'] = df_main.geometry.centroid.x
+            df_main['lat'] = df_main.geometry.centroid.y
 
-        gdf['lat_lon'] = list(zip(gdf['lat'], gdf['lon']))
-        
-        if 'area' in gdf.columns:
-            gdf['area'] = gdf['area'].astype(int)
-
-        # --- 拆分数据 ---
-        # 1. 背景层 (Candidates): 所有的屋顶
-        df_bg = gdf.copy()
-        
-        # 2. 前景层 (Top 200): 按 CO2 排序取前 200
-        if 'co2' in gdf.columns:
-            df_main = gdf.sort_values(by='co2', ascending=False).head(200)
-        else:
-            df_main = gdf.head(200)
+        df_main['lat_lon'] = list(zip(df_main['lat'], df_main['lon']))
+        if 'area' in df_main.columns: df_main['area'] = df_main['area'].astype(int)
 
     except Exception as e:
-        st.error(f"Data loading error: {e}")
-        st.info("💡 Tip: Ensure `large_roofs_test.gpkg` exists in `notebooks/data/`")
+        st.error(f"Data processing error: {e}")
     
     return df_main, df_bg
 
@@ -91,44 +88,47 @@ def load_hang_data():
 def get_hang_map(gdf_bg, gdf_main):
     m = folium.Map(location=[50.8792, 4.7001], zoom_start=13, tiles="CartoDB positron")
     
-    # 红色背景层 (所有候选)
+    # 红色背景层
     if not gdf_bg.empty:
         folium.GeoJson(
             gdf_bg.geometry, 
-            name="All Large Roofs",
+            name="500 Largest Roofs",
             style_function=lambda x: {'color': '#ef4444', 'weight': 1, 'opacity': 0.3, 'fillOpacity': 0.1},
-            show=False # 默认隐藏背景层，避免太乱
+            show=False
         ).add_to(m)
 
-    # 蓝色 Top 200 层 (高优先级)
+    # 蓝色 Top 200 层
     if not gdf_main.empty:
         folium.GeoJson(
             gdf_main.geometry,
-            name="Top 200 Candidates",
-            style_function=lambda x: {'color': '#3b82f6', 'weight': 2, 'fillOpacity': 0.4}
+            name="Top 200 (PVGIS Analyzed)",
+            style_function=lambda x: {'color': '#3b82f6', 'weight': 2, 'fillOpacity': 0.5}
         ).add_to(m)
         
-        # 绿色交互标记
         for _, row in gdf_main.iterrows():
-            badge_color = "#dcfce7" if row.get('roof_type') == 'Flat' else "#fee2e2" if row.get('roof_type') == 'Pitched' else "#f3f4f6"
+            rtype = row.get('roof_type', 'Unknown')
+            ori = row.get('orientation', 'N/A')
             
-            # 安全获取值
-            r_name = row.get('name', 'Unknown')
-            r_rank = row.get('rank', 'N/A')
-            r_area = row.get('area', 0)
-            r_co2 = row.get('co2', 0)
-            
+            badge_color = "#dcfce7" if rtype == 'Flat' else "#fee2e2" if rtype == 'Pitched' else "#f3f4f6"
+            ori_display = str(ori).replace("_", "-").title()
+            ori_badge = f"<span style='background-color:#e0f2fe; color:#0369a1; padding:1px 4px; border-radius:3px; margin-left:4px; font-size:0.7em;'>{ori_display}</span>"
+
             popup_html = f"""
-            <div style="font-family:sans-serif; width:180px;">
-                <div style="background:{badge_color}; padding:2px 5px; border-radius:3px; display:inline-block; font-size:0.8em; font-weight:bold;">{row.get('roof_type', 'Unknown')}</div>
-                <b>#{r_rank} {r_name}</b><br>
-                Area: {r_area:,} m²<br>
-                CO₂: {r_co2:.1f} t/yr
+            <div style="font-family:sans-serif; width:220px;">
+                <div style="margin-bottom:5px;">
+                    <span style="background:{badge_color}; padding:2px 5px; border-radius:3px; font-size:0.8em; font-weight:bold;">{rtype}</span>
+                    {ori_badge}
+                </div>
+                <b>#{row.get('rank', '')} {row.get('name', 'Unknown')}</b><br>
+                <hr style="margin:5px 0;">
+                Area: {row.get('area', 0):,} m²<br>
+                <b>CO₂ Savings: {row.get('co2', 0):.1f} t/yr</b><br>
+                <span style="color:#666;">Energy: {row.get('kwh', 0):,.0f} kWh/yr</span>
             </div>
             """
             folium.Marker(
                 location=row['lat_lon'],
-                tooltip=f"#{r_rank} {r_name}",
+                tooltip=f"#{row.get('rank', '')} {row.get('name', '')}",
                 popup=folium.Popup(popup_html, max_width=250),
                 icon=folium.Icon(color="green", icon="star", prefix="fa")
             ).add_to(m)
@@ -136,59 +136,106 @@ def get_hang_map(gdf_bg, gdf_main):
     folium.LayerControl().add_to(m)
     return m
 
-# --- 3. 页面布局 ---
-st.title("🎯 Top 200 Priority Roofs")
-st.caption("Based on Hang's WFS Analysis (Data Source: `large_roofs_test.gpkg`)")
+# --- 3. 页面逻辑 ---
+st.title("🎯 Top 200 Priority Roofs (PVGIS Integrated)")
+st.caption("Data Source: PVGIS Estimates (Ha Van) + AI Classification (Antonio)")
 
 df_top, df_candidates = load_hang_data()
 
 if df_top.empty:
-    st.error("Could not load data. Please check file paths.")
     st.stop()
 
-# 侧边栏
+# --- 侧边栏 ---
 with st.sidebar:
     st.header("🔍 Filters")
-    # 动态获取面积最大值，如果数据为空或为0则给默认值5000
-    # 防止 Slider min_value (0) == max_value (0) 的崩溃
-    calculated_max = int(df_top.area.max()) if 'area' in df_top.columns and not df_top.empty else 0
-    max_area = max(calculated_max, 500)
     
-    # 调试信息：显示数据范围
-    st.info(f"Loaded {len(df_top)} roofs. Max Area: {max_area} m²")
-    
-    # 修改：默认值改为 0，确保测试数据能显示
+    # 修复：确保 max_area 始终大于 0
+    if 'area' in df_top.columns and not df_top.empty:
+        calc_max = int(df_top.area.max())
+        max_area = calc_max if calc_max > 0 else 5000
+    else:
+        max_area = 5000
+        
     min_area = st.slider("Min Area (m²)", 0, max_area, 0)
-    flat_only = st.checkbox("Show Flat Roofs Only (AI)", value=False)
+    
+    has_ai = 'Flat' in df_top['roof_type'].values
+    flat_only = st.checkbox("Show Flat Roofs Only (AI)", value=False, disabled=not has_ai)
 
-# 过滤
+    if 'orientation' in df_top.columns:
+        valid_oris = [x for x in df_top['orientation'].unique() if pd.notna(x)]
+        selected_ori = st.multiselect("Best Orientation", valid_oris, default=valid_oris)
+    else:
+        selected_ori = []
+
+# --- 过滤数据 ---
 filtered = df_top.copy()
 if 'area' in filtered.columns:
     filtered = filtered[filtered.area >= min_area]
 
-if flat_only and 'roof_type' in filtered.columns:
+if flat_only:
     filtered = filtered[filtered.roof_type == 'Flat']
 
-# 显示
+if selected_ori and 'orientation' in filtered.columns:
+    filtered = filtered[filtered['orientation'].isin(selected_ori)]
+
+# 按 Rank 排序 (现在 rank 肯定存在了)
+filtered = filtered.sort_values(by='rank').reset_index(drop=True)
+
+# --- 选中逻辑 (修复越界问题) ---
+map_center = [50.8792, 4.7001]
+map_zoom = 13
+
+# 检查 session state
+if 'selected_row_index' in st.session_state and st.session_state.selected_row_index is not None:
+    idx = st.session_state.selected_row_index
+    if idx < len(filtered):
+        try:
+            selected_row_data = filtered.iloc[idx]
+            map_center = selected_row_data['lat_lon']
+            map_zoom = 18 
+            st.toast(f"📍 Focusing on {selected_row_data['name']}", icon="🔭")
+        except Exception:
+            pass
+    else:
+        st.session_state.selected_row_index = None
+
+# --- 布局显示 ---
 c1, c2 = st.columns([3, 2])
+
 with c1:
-    st_folium(get_hang_map(df_candidates, filtered), height=600, width="100%")
+    st_folium(
+        get_hang_map(df_candidates, filtered), 
+        height=600, 
+        width="100%",
+        center=map_center,
+        zoom=map_zoom,
+        key="folium_map"
+    )
+
 with c2:
-    st.subheader(f"Building List ({len(filtered)})") # 显示过滤后的数量
+    st.subheader(f"Building List ({len(filtered)})")
     
-    # 准备显示的列
-    cols_to_show = ['name', 'area', 'co2']
-    if 'rank' in filtered.columns: cols_to_show.insert(0, 'rank')
-    if 'roof_type' in filtered.columns: cols_to_show.append('roof_type')
-    if 'ai_confidence' in filtered.columns: cols_to_show.append('ai_confidence')
+    cols = ['rank', 'name', 'area', 'co2', 'kwh', 'orientation', 'roof_type']
+    cols = [c for c in cols if c in filtered.columns]
     
-    st.dataframe(
-        filtered[cols_to_show],
+    event = st.dataframe(
+        filtered[cols],
         column_config={
-            "ai_confidence": st.column_config.ProgressColumn("Conf.", format="%.2f"),
-            "area": st.column_config.NumberColumn("Area (m²)", format="%d"),
-            "co2": st.column_config.NumberColumn("CO₂ (t)", format="%.1f")
+            "area": st.column_config.NumberColumn("Area", format="%d m²"),
+            "co2": st.column_config.NumberColumn("CO₂", format="%.1f t"),
+            "kwh": st.column_config.NumberColumn("Energy", format="%,.0f kWh"),
+            "roof_type": "Type",
+            "orientation": "Ori."
         },
         height=600,
-        use_container_width=True
+        use_container_width=True,
+        hide_index=True,
+        on_select="rerun",     # 点击行时重新运行
+        selection_mode="single-row" # 单选模式
     )
+    
+    # 捕获点击事件
+    if len(event.selection.rows) > 0:
+        st.session_state.selected_row_index = event.selection.rows[0]
+    else:
+        st.session_state.selected_row_index = None
