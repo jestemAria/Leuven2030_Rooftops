@@ -1,0 +1,16 @@
+streamlit
+pandas
+numpy
+geopandas
+folium
+streamlit-folium
+pyproj
+shapely
+rasterio
+
+
+
+torch
+torchvision
+tqdm
+Pillow
