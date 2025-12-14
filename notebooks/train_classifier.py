@@ -34,19 +34,27 @@ def get_model(num_classes=2):
     return model
 
 def train_loop():
-    # --- 1. 准备数据 ---
     print("1. Loading Data...")
-    # 读取 GeoPackage
-    gdf = gpd.read_file("notebooks/data_leuven/leuven_large_roofs.gpkg")
+    gdf = gpd.read_file("notebooks/data/large_roofs_test.gpkg") # 确保路径对
+
+    # --- 修改开始 ---
+    # 以前是: fake_labels = np.random.randint(...)
     
-    # !!! 关键步骤：你需要标签 !!!
-    # 在现实中，你需要先手动标注一部分数据（比如在 CSV 里加一列 'roof_type'）
-    # 这里我们模拟生成一些随机标签用于代码演示
-    import numpy as np
-    fake_labels = np.random.randint(0, 2, size=len(gdf)) # 0 或 1
+    # 现在: 过滤出你刚才标注过的数据 (去掉 NULL)
+    # 假设你的列名叫 'ground_truth'
+    labeled_gdf = gdf[gdf['ground_truth'].notna()].copy()
     
-    # 创建 Dataset
-    full_dataset = RooftopDataset(gdf, labels=fake_labels)
+    print(f"找到已标注数据: {len(labeled_gdf)} 个")
+    
+    if len(labeled_gdf) < 10:
+        print("错误: 标注的数据太少了！请至少标 10 个以上再来训练。")
+        return
+
+    # 获取真实标签
+    real_labels = labeled_gdf['ground_truth'].astype(int).values
+    
+    # 使用 labeled_gdf 而不是完整的 gdf 来创建 Dataset
+    full_dataset = RooftopDataset(labeled_gdf, labels=real_labels)
     
     # 划分 训练集 / 验证集
     train_size = int(0.8 * len(full_dataset))
