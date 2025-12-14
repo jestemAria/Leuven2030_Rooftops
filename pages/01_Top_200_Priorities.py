@@ -88,6 +88,10 @@ def get_hang_map(gdf_bg, gdf_main):
         for _, row in gdf_main.iterrows():
             rtype = row.get('roof_type', 'Unknown')
             ori = row.get('orientation', 'N/A')
+            # 格式化置信度
+            conf_val = row.get('ai_confidence', 0.0)
+            conf_str = f"({conf_val:.0%})" if conf_val > 0 else ""
+            
             badge_color = "#dcfce7" if rtype == 'Flat' else "#fee2e2" if rtype == 'Pitched' else "#f3f4f6"
             ori_display = str(ori).replace("_", "-").title()
             ori_badge = f"<span style='background-color:#e0f2fe; color:#0369a1; padding:1px 4px; border-radius:3px; margin-left:4px; font-size:0.7em;'>{ori_display}</span>"
@@ -95,7 +99,7 @@ def get_hang_map(gdf_bg, gdf_main):
             popup_html = f"""
             <div style="font-family:sans-serif; width:220px;">
                 <div style="margin-bottom:5px;">
-                    <span style="background:{badge_color}; padding:2px 5px; border-radius:3px; font-size:0.8em; font-weight:bold;">{rtype}</span>
+                    <span style="background:{badge_color}; padding:2px 5px; border-radius:3px; font-size:0.8em; font-weight:bold;">{rtype} {conf_str}</span>
                     {ori_badge}
                 </div>
                 <b>#{row.get('rank', '')} {row.get('name', 'Unknown')}</b><br>
@@ -162,7 +166,11 @@ map_zoom = 13
 with c2:
     st.subheader(f"Building List ({len(filtered)})")
     
+    # 动态构建列列表
     cols = ['rank', 'name', 'area', 'co2', 'kwh', 'orientation', 'roof_type']
+    if 'ai_confidence' in filtered.columns:
+        cols.append('ai_confidence')
+    
     cols = [c for c in cols if c in filtered.columns]
     
     # 渲染表格并捕获事件
@@ -173,7 +181,8 @@ with c2:
             "co2": st.column_config.NumberColumn("CO₂", format="%.1f t"),
             "kwh": st.column_config.NumberColumn("Energy", format="%,.0f kWh"),
             "roof_type": "Type",
-            "orientation": "Ori."
+            "orientation": "Ori.",
+            "ai_confidence": st.column_config.ProgressColumn("Conf.", format="%.2f", min_value=0, max_value=1)
         },
         height=600,
         use_container_width=True,
