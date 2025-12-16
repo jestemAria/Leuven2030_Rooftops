@@ -26,5 +26,5 @@ This dashboard integrates data from multiple analysis pipelines to help prioriti
     * Based on latest rooftop potentiality algorithms.
 
 ---
-*Built by Emergent Leuven for Leuven 2030.*
+*Project Built by Emergent Leuven for Leuven 2030. Front-end developed by Yuxuan (Antonio) Kang. Based on Hang, Ha and Alex's Data Analysis.*
 """)
